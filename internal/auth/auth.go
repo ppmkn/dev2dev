@@ -12,10 +12,10 @@ import (
 	"github.com/ppmkn/dev2dev/internal/middleware"
 )
 
-const (
-    AccessLifeTime = 2 * time.Minute
-    //RefreshLifeTime = 30 * 24 * time.Hour
-    RefreshLifeTime = 3 * time.Minute
+var (
+    AccessLifeTime = 15 * time.Minute
+    RefreshLifeTime = 30 * 24 * time.Hour
+    //RefreshLifeTime = 3 * time.Minute
 )
 
 func uuidToString(u uuid.UUID) string {

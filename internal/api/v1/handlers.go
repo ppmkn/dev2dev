@@ -372,3 +372,72 @@ func UsersHandler(w http.ResponseWriter, r *http.Request) {
 // 	w.WriteHeader(http.StatusOK)
 // 	fmt.Fprintln(w, "Image uploaded successfully")
 // }
+
+// Редактирование профиля пользователя - достаем данные из БД
+func ProfileEditGetHandler(w http.ResponseWriter, r *http.Request) {
+	db := database.GetDB()
+
+    // Извлекаем userID из claims
+    authUserID, err := auth.UserIdExtractor(w, r)
+    if err != nil {
+        fmt.Println("Error extracting claims:", err)
+        return
+    }
+
+	// Достаем данные пользователя
+	var nicknameUser string
+	query := "SELECT nickname FROM users WHERE id = $1"
+	err = db.QueryRow(query, authUserID).Scan(&nicknameUser)
+	if err != nil {
+		http.Error(w, "User not found!", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(struct {
+		Nickname string `json:"nickname"` // Анонимная структура с ответом
+	}{
+		Nickname: nicknameUser,
+	})
+}
+
+// Редактирование профиля пользователя - обновляем измененные данные
+func ProfileEditPostHandler(w http.ResponseWriter, r *http.Request) {
+	db := database.GetDB()
+
+	// Извлекаем userID из claims
+	userID, err := auth.UserIdExtractor(w, r)
+	if err != nil {
+		fmt.Println("Error extracting claims:", err)
+		return
+	}
+
+	var user struct {
+		Nickname string `json:"nickname"`
+	}
+	json.NewDecoder(r.Body).Decode(&user)
+
+	var count int
+	// Проверяем, не заняты ли данные
+	query := "SELECT COUNT(*) FROM users WHERE nickname = $1 AND id != $2"
+	err = db.QueryRow(query, user.Nickname, userID).Scan(&count)
+	if err != nil {
+		http.Error(w, "Error checking data in the DB", http.StatusUnauthorized)
+		return
+	}
+
+	if count > 0 {
+		http.Error(w, "Username is already taken", http.StatusConflict)
+		return
+	}
+
+	// Обновляем данные в БД
+	_, err = db.Exec("UPDATE users SET nickname = $1 WHERE id = $2", user.Nickname, userID)
+	if err != nil {
+		http.Error(w, "Failed to update date", http.StatusInternalServerError)
+		return
+	}
+
+	// Отправляем успешный ответ
+	w.WriteHeader(http.StatusOK)
+}

@@ -54,6 +54,9 @@ func TokenAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
         })
 
         if err != nil || !token.Valid {
+            log.Println(tokenString)
+            log.Println("Error parsing token:", err)
+            log.Println("Token valid:", token.Valid)
             http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
             return
         }
