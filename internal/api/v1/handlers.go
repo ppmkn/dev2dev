@@ -156,10 +156,34 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-    // Извлекаем access-токен из заголовка
-    oldAccessToken, err := auth.AccessTokenExtractor(w, r)
-    if err != nil {
-        fmt.Println("Error extracting access token:", err)
+	// Получаем access токен из заголовка Authorization
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		http.Error(w, "Missing authorization header", http.StatusUnauthorized)
+		fmt.Println("Missing authorization header")
+		fmt.Errorf("missing authorization header")
+		return
+	}
+
+	// Формат должен быть "Bearer <access_token>"
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || parts[0] != "Bearer" {
+		http.Error(w, "Invalid authorization header format", http.StatusUnauthorized)
+		fmt.Println("Invalid authorization header format")
+		fmt.Errorf("invalid authorization header format")
+		return
+	}
+
+	oldAccessToken := parts[1] // Извлекаем access token	
+
+	// Парсим токен и получаем claims
+	claims := &middleware.Claims{}
+    token, err := jwt.ParseWithClaims(oldAccessToken, claims, func(token *jwt.Token) (interface{}, error) {
+        return middleware.JwtKey, nil
+    })
+
+    if token.Valid {
+		http.Error(w, "Access token is still valid", http.StatusForbidden)
         return
     }
 
@@ -173,7 +197,7 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Генерация нового access token
 	expirationTime := time.Now().Add(auth.AccessLifeTime)
-	claims := &middleware.Claims{
+	claims = &middleware.Claims{
 		UserID: userID,
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: expirationTime.Unix(),
@@ -193,6 +217,7 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 	// Обновляем/добавляем новый refresh token в базу данных
 	_, err = db.Exec("UPDATE refresh_tokens SET token = $1, expires_at = $2 WHERE user_id = $3", newRefreshToken, refreshExpirationTime, userID)
 	if err != nil {
+		fmt.Println(err.Error())
 		http.Error(w, "Failed to update refresh token", http.StatusInternalServerError)
 		return
 	}
