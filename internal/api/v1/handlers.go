@@ -238,7 +238,7 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 	refreshExpirationTime := time.Now().Add(auth.RefreshLifeTime) // Устанавливаем срок действия для нового refresh token
 
 	// Получаем информацию о device из запроса
-	//deviceInfo := r.UserAgent()
+	deviceInfo := r.UserAgent()
 	
 	// Обновляем/добавляем новый refresh token в базу данных
 	// _, err = db.Exec("UPDATE refresh_tokens SET token = $1, expires_at = $2 WHERE user_id = $3", newRefreshToken, refreshExpirationTime, userID)
@@ -247,7 +247,7 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 	// 	http.Error(w, "Failed to update refresh token", http.StatusInternalServerError)
 	// 	return
 	// }
-	_, err = db.Exec("INSERT INTO refresh_tokens (user_id, token, expires_at, device_info) VALUES ($1, $2, $3, $4)", userID, newRefreshToken, refreshExpirationTime, "deviceInfo")
+	_, err = db.Exec("INSERT INTO refresh_tokens (user_id, token, expires_at, device_info) VALUES ($1, $2, $3, $4)", userID, newRefreshToken, refreshExpirationTime, deviceInfo)
 	if err != nil {
 		fmt.Println("Error saving refresh token:", err)
 		http.Error(w, "Could not save refresh token", http.StatusInternalServerError)
