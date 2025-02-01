@@ -141,27 +141,17 @@ func SignInHandler(w http.ResponseWriter, r *http.Request) {
 
 func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 	db := database.GetDB()
-
+	fmt.Println(time.Now().UTC().Unix())
 	var tokens struct {
 		RefreshToken string `json:"refresh_token"`
 	}
 	json.NewDecoder(r.Body).Decode(&tokens)
-
-	var userID uuid.UUID
-	// Проверяем наличие refresh токена
-	query := "SELECT user_id FROM refresh_tokens WHERE token = $1"
-	err := db.QueryRow(query, tokens.RefreshToken).Scan(&userID)
-	if err != nil {
-		http.Error(w, "Invalid refresh token", http.StatusUnauthorized)
-		return
-	}
 
 	// Получаем access токен из заголовка Authorization
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		http.Error(w, "Missing authorization header", http.StatusUnauthorized)
 		fmt.Println("Missing authorization header")
-		fmt.Errorf("missing authorization header")
 		return
 	}
 
@@ -170,22 +160,55 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 	if len(parts) != 2 || parts[0] != "Bearer" {
 		http.Error(w, "Invalid authorization header format", http.StatusUnauthorized)
 		fmt.Println("Invalid authorization header format")
-		fmt.Errorf("invalid authorization header format")
 		return
 	}
 
-	oldAccessToken := parts[1] // Извлекаем access token	
+	oldAccessToken := parts[1] // Извлекаем access token
 
 	// Парсим токен и получаем claims
 	claims := &middleware.Claims{}
-    token, err := jwt.ParseWithClaims(oldAccessToken, claims, func(token *jwt.Token) (interface{}, error) {
-        return middleware.JwtKey, nil
-    })
+	_, err := jwt.ParseWithClaims(oldAccessToken, claims, func(token *jwt.Token) (interface{}, error) {
+		return middleware.JwtKey, nil
+	})
 
-    if token.Valid {
+	if err != nil {
+		// Если ошибка связана с истечением срока действия токена, игнорируем её
+		if strings.Contains(err.Error(), "token is expired") {
+			fmt.Println("Access token is expired, but continuing as the signature is still valid")
+		} else {
+			// Ошибка парсинга токена (например, токен может быть поврежден или невалиден)
+			http.Error(w, "Invalid access token", http.StatusUnauthorized)
+			fmt.Println("Error parsing access token:", err)
+			return
+		}
+	}
+
+	// Проверяем время жизни токена. На случай, если юзер запустит обновление с еще рабочим токеном
+	if claims.ExpiresAt < time.Now().Unix() {
+		// Если срок действия истёк, продолжаем выполнение, не отклоняя запрос
+		fmt.Println("Access token has expired, but signature is valid")
+	} else {
+		// Если токен ещё действителен, сообщаем, что он актуален
 		http.Error(w, "Access token is still valid", http.StatusForbidden)
-        return
-    }
+		fmt.Println("Access token is still valid")
+		return
+	}
+
+	var userID uuid.UUID
+	var expiresAt time.Time
+	// Проверяем наличие refresh токена
+	query := "SELECT user_id, expires_at FROM refresh_tokens WHERE token = $1 ORDER BY id DESC LIMIT 1"
+	err = db.QueryRow(query, tokens.RefreshToken).Scan(&userID, &expiresAt)
+	if err != nil {
+		http.Error(w, "Invalid refresh token", http.StatusUnauthorized)
+		return
+	}
+
+	// Проверяем время жизни refresh-токена
+	if expiresAt.Unix() < time.Now().Unix() {
+		http.Error(w, "Refresh token is expired or invalid", http.StatusUnauthorized)
+		return
+	}
 
     // Заносим старый access токен в черный список
     _, err = db.Exec("INSERT INTO token_blacklist (token) VALUES ($1)", oldAccessToken)
@@ -214,11 +237,20 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 	newRefreshToken := uuid.New().String()                       // Генерация нового UUID для refresh token
 	refreshExpirationTime := time.Now().Add(auth.RefreshLifeTime) // Устанавливаем срок действия для нового refresh token
 
+	// Получаем информацию о device из запроса
+	//deviceInfo := r.UserAgent()
+	
 	// Обновляем/добавляем новый refresh token в базу данных
-	_, err = db.Exec("UPDATE refresh_tokens SET token = $1, expires_at = $2 WHERE user_id = $3", newRefreshToken, refreshExpirationTime, userID)
+	// _, err = db.Exec("UPDATE refresh_tokens SET token = $1, expires_at = $2 WHERE user_id = $3", newRefreshToken, refreshExpirationTime, userID)
+	// if err != nil {
+	// 	fmt.Println(err.Error())
+	// 	http.Error(w, "Failed to update refresh token", http.StatusInternalServerError)
+	// 	return
+	// }
+	_, err = db.Exec("INSERT INTO refresh_tokens (user_id, token, expires_at, device_info) VALUES ($1, $2, $3, $4)", userID, newRefreshToken, refreshExpirationTime, "deviceInfo")
 	if err != nil {
-		fmt.Println(err.Error())
-		http.Error(w, "Failed to update refresh token", http.StatusInternalServerError)
+		fmt.Println("Error saving refresh token:", err)
+		http.Error(w, "Could not save refresh token", http.StatusInternalServerError)
 		return
 	}
 
@@ -303,7 +335,7 @@ func ProfileHandler(w http.ResponseWriter, r *http.Request) {
 
     // Достаем аватарку
     // var avatar []byte
-    // queryTwo := "SELECT avatar FROM user_profiles WHERE user_id = $1"
+    // queryTwo := "SELECT avatar FROM users_profiles WHERE user_id = $1"
     // err = db.QueryRow(queryTwo, authUserID).Scan(&avatar)
     // if err != nil {
     //     http.Error(w, "Avatar not found!", http.StatusNotFound)
@@ -385,7 +417,7 @@ func UsersHandler(w http.ResponseWriter, r *http.Request) {
 
 // 	fmt.Printf("File data: %x\n", data[:10]) // Выводим первые 10 байт файла
 
-// 	query := "INSERT INTO user_profiles (user_id, avatar) VALUES ($1, $2)"
+// 	query := "INSERT INTO users_profiles (user_id, avatar) VALUES ($1, $2)"
 // 	_, err = db.Exec(query, userID, data)
 // 	if err != nil {
 // 		fmt.Println(err.Error())

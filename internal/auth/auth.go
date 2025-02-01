@@ -13,7 +13,7 @@ import (
 )
 
 var (
-    AccessLifeTime = 2 * time.Minute
+    AccessLifeTime = 1 * time.Minute
     //RefreshLifeTime = 30 * 24 * time.Hour
     RefreshLifeTime = 3 * time.Minute
 )
@@ -60,7 +60,7 @@ func UserIdExtractor(w http.ResponseWriter, r *http.Request) (string, error) {
     return userID, nil
 }
 
-// AccessTokenExtractor возвращает access-token пользователя
+// AccessTokenExtractor возвращает access-token пользователя с проверкой на валидность
 func AccessTokenExtractor(w http.ResponseWriter, r *http.Request) (string, error) {
     // Получаем access токен из заголовка Authorization
     authHeader := r.Header.Get("Authorization")
